@@ -1,0 +1,53 @@
+parameters:
+  - name: azureSubscriptionSvcCxn
+    type: string
+  - name: webappName
+    type: string
+  - name: kvName
+    type: string
+  - name: apimName
+    type: string
+    
+steps:
+  - download: current
+    artifact: drop
+  - task: AzureCLI@2
+    displayName: 'Deploy webapp'
+    inputs:
+      azureSubscription: '${{parameters.azureSubscriptionSvcCxn}}'
+      scriptType: 'pscore'
+      scriptLocation: 'inlineScript'
+      inlineScript: |
+        az webapp config appsettings set --resource-group $(resourceGroup) --subscription $(subscription) --name "${{parameters.webappName}}" --settings WEBSITE_RUN_FROM_PACKAGE="1" KeyVaultUrl="https://${{parameters.kvName}}.vault.azure.net/"
+        az webapp deployment source config-zip --resource-group $(resourceGroup) --subscription $(subscription) --name "${{parameters.webappName}}" --src $(Pipeline.Workspace)/drop/*.zip
+
+        # Adding app to KV
+        $appId = az webapp identity show --name "${{parameters.webappName}}" --resource-group $(resourceGroup) | ConvertFrom-Json
+        $command = az keyvault set-policy --name "${{parameters.kvName}}" --secret-permissions get list set --subscription "$(subscription)" --object-id $appId.principalId
+
+  - task: AzureCLI@2
+    displayName: 'Setup API Management'
+    inputs:
+      azureSubscription: '${{parameters.azureSubscriptionSvcCxn}}'
+      scriptType: 'pscore'
+      scriptLocation: 'inlineScript'
+      powerShellErrorActionPreference: stop
+      inlineScript: |
+          $apiId = "voyg-cpp-management"
+          $agentApi = curl ipinfo.io/ip
+          az webapp config access-restriction add -g $(ResourceGroup) -n "${{parameters.webappName}}" --rule-name AzureAgent --action Allow --ip-address $agentApi --priority 15
+          az apim api import --path "/management" --api-id $apiId --resource-group $(resourceGroup) --subscription $(subscription) --service-url "https://${{lower(parameters.webappName)}}.azurewebsites.net/" --protocols https --service-name ${{parameters.apimName}} --specification-url "https://${{parameters.webappName}}.azurewebsites.net/swagger/v1/swagger.json" --specification-format OpenApiJson
+          az apim product api add --resource-group $(resourceGroup) --service-name ${{parameters.apimName}}  --product-id unlimited --api-id $apiId --subscription $(subscription)
+          az webapp config access-restriction remove -g $(ResourceGroup) -n "${{parameters.webappName}}" --rule-name AzureAgent
+    
+  - task: AzurePowerShell@5
+    displayName: 'Setup API policy'
+    inputs:
+      azureSubscription: '${{parameters.azureSubscriptionSvcCxn}}'
+      azurePowerShellVersion: 'latestVersion'
+      scriptType: inlineScript
+      errorActionPreference: stop
+      Inline: |
+          $apiId = "voyg-cpp-management"
+          $apimContext = New-AzApiManagementContext -ResourceGroupName $(resourceGroup) -ServiceName "${{parameters.apimName}}"
+          Set-AzApiManagementPolicy -Context $apimContext -ApiId $apiId -PolicyFilePath $(System.DefaultWorkingDirectory)/data/policy.xml -debug

@@ -1,0 +1,102 @@
+trigger:
+  branches:
+    include:
+      - develop
+      - preprod
+
+variables:
+  - name: clientAffix
+    value: NASA
+  - name: projectAffix
+    value: VOYG
+  - name: componentAffix
+    value: MgmtApi
+  - name: projectsToPublish
+    value: |
+      **/*/VOYG.CPP.Management.Api/VOYG.CPP.Management.Api.csproj
+  - name: qualifyProjectAffix
+    value: false
+  - ${{ if startsWith(variables['Build.SourceBranch'], 'refs/heads/develop') }}:
+    - group: ${{ format('{0}_{1}_{2}', variables.clientAffix, variables.projectAffix, 'develop') }}
+  - ${{ if startsWith(variables['Build.SourceBranch'], 'refs/heads/preprod') }}:
+    - group: ${{ format('{0}_{1}_{2}', variables.clientAffix, variables.projectAffix, 'preproduction') }}
+    - ${{ if startsWith(variables['Build.SourceBranch'], 'refs/heads/master') }}:
+      - group: ${{ format('{0}_{1}_{2}', variables.clientAffix, variables.projectAffix, 'production') }}
+
+
+
+parameters:
+  - name: DeployInfrastructure
+    displayName: Deploy infrastructure
+    type: boolean
+    default: false
+    
+
+resources:
+  repositories:
+    - repository: templates
+      type: git
+      name: VOYG/Mesh.DevOps.Templates
+
+stages:
+- template: GenericTemplates/build-dotnet.yml@templates
+  parameters:
+    executeTests: true
+    publishProjectsToPublish: $(projectsToPublish)
+
+- template: GenericTemplates/deploy.yml@templates
+  parameters:
+    conditionForDeployment: and(succeeded(), startsWith(variables['Build.SourceBranch'], 'refs/heads/develop'))
+    deployEnvInfrastructure: ${{parameters.DeployInfrastructure}}
+    azureSubscriptionSvcCxn: $(serviceConnection)
+    clientAffix: $(clientAffix)
+    projectAffix: $(projectAffix)
+    env: Dv
+    qualifyProjectAffix: ${{ eq(variables.qualifyProjectAffix, true) }}    
+    vmImageLabel: 'ubuntu-latest'
+    variableGroup: ${{ format('{0}_{1}_{2}', variables.clientAffix, variables.projectAffix, 'develop') }}
+    deploymentSteps:
+      - template: pipelines/deployment-steps.yml
+        parameters:
+          azureSubscriptionSvcCxn: $(serviceConnection)
+          webappName: ${{ format('{0}{1}{2}{3}', 'Dv', variables.projectAffix, variables.componentAffix, 'As') }}
+          kvName: ${{ format('{0}{1}{2}{3}', 'Dv', variables.projectAffix, 'Shr', 'Kv') }}
+          apimName: ${{ format('{0}{1}{2}{3}', 'Dv', variables.projectAffix, 'Shr', 'ApiMgmt') }}
+
+- template: GenericTemplates/deploy.yml@templates
+  parameters:
+    conditionForDeployment: and(succeeded(), startsWith(variables['Build.SourceBranch'], 'refs/heads/preprod'))
+    deployEnvInfrastructure: ${{parameters.DeployInfrastructure}}
+    azureSubscriptionSvcCxn: $(serviceConnection)
+    clientAffix: $(clientAffix)
+    projectAffix: $(projectAffix)
+    env: Pp
+    qualifyProjectAffix: ${{ eq(variables.qualifyProjectAffix, true) }}    
+    vmImageLabel: 'ubuntu-latest'
+    variableGroup: ${{ format('{0}_{1}_{2}', variables.clientAffix, variables.projectAffix, 'preproduction') }}
+    deploymentSteps:
+      - template: pipelines/deployment-steps.yml
+        parameters:
+          azureSubscriptionSvcCxn: $(serviceConnection)
+          webappName: ${{ format('{0}{1}{2}{3}', 'Pp', variables.projectAffix, variables.componentAffix, 'As') }}
+          kvName: ${{ format('{0}{1}{2}{3}', 'Pp', variables.projectAffix, 'Shr', 'Kv') }}
+          apimName: ${{ format('{0}{1}{2}{3}', 'Pp', variables.projectAffix, 'Shr', 'ApiMgmt') }}
+
+- template: GenericTemplates/deploy.yml@templates
+  parameters:
+    conditionForDeployment: and(succeeded(), startsWith(variables['Build.SourceBranch'], 'refs/heads/master'))
+    deployEnvInfrastructure: ${{parameters.DeployInfrastructure}}
+    azureSubscriptionSvcCxn: $(serviceConnection)
+    clientAffix: $(clientAffix)
+    projectAffix: $(projectAffix)
+    env: Pd
+    qualifyProjectAffix: ${{ eq(variables.qualifyProjectAffix, true) }}    
+    vmImageLabel: 'ubuntu-latest'
+    variableGroup: ${{ format('{0}_{1}_{2}', variables.clientAffix, variables.projectAffix, 'production') }}
+    deploymentSteps:
+      - template: pipelines/deployment-steps.yml
+        parameters:
+          azureSubscriptionSvcCxn: $(serviceConnection)
+          webappName: ${{ format('{0}{1}{2}{3}', 'Pd', variables.projectAffix, variables.componentAffix, 'As') }}
+          kvName: ${{ format('{0}{1}{2}{3}', 'Pd', variables.projectAffix, 'Shr', 'Kv') }}
+          apimName: ${{ format('{0}{1}{2}{3}', 'Pd', variables.projectAffix, 'Shr', 'ApiMgmt') }}
