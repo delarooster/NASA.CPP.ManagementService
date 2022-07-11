@@ -106,7 +106,7 @@ namespace VOYG.CPP.Management.Api.Config.Startup
 
         private static IUnitOfWork GetUnitOfWork(string connectionString)
         {
-            var dbContext = new AcpsDbContext(new DbContextOptionsBuilder<AcpsDbContext>()
+            var dbContext = new NasaDbContext(new DbContextOptionsBuilder<NasaDbContext>()
                 .UseSqlServer(connectionString)
                 .Options);
 
